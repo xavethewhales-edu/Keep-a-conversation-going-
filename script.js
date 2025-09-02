@@ -4346,78 +4346,74 @@ function loadVideoChoiceScene(id) {
   const regListener = window.registerListener || function(t,e,h){ t.addEventListener(e,h); };
   const regCleanup  = window.registerCleanup  || function(){};
 
-  const game = document.getElementById("game-container");
-  const sceneText = document.getElementById("scene-text");
+  // Base containers
+  const game       = document.getElementById("game-container");
+  const sceneText  = document.getElementById("scene-text");
   const sceneImage = document.getElementById("scene-image");
 
-  // Clear unrelated UI
-  [sceneImage].forEach(el => { if (el) { el.style.display = "none"; el.innerHTML = ""; }});
+  // Hide unrelated UI
+  [sceneImage].forEach(el => { if (el) { el.style.display = "none"; el.innerHTML = ""; } });
   if (sceneText) { sceneText.style.display = "none"; sceneText.textContent = ""; }
   if (game) game.style.display = "block";
 
-  // Nuke any prior vc UI
+  // Nuke prior VC UI
   const stale = document.getElementById("vc-wrap");
   if (stale) stale.remove();
 
-  // Wrapper
+  // === Wrapper
   const wrap = document.createElement("div");
   wrap.id = "vc-wrap";
   wrap.style.cssText = "max-width:840px;margin:0 auto;padding:8px;";
   regNode(wrap);
   game.appendChild(wrap);
 
-  // Video
-  const video = document.createElement("video");
-  video.id = "vc-video";
-  video.controls = true;
-  video.preload = "metadata";
-  video.playsInline = true;              // iOS inline
-  video.setAttribute("webkit-playsinline","true");
-  video.src = scene.videoSrc || "";
-  video.style.cssText = "width:100%;max-height:360px;border-radius:12px;background:#000;display:block;margin:0 auto;";
-  wrap.appendChild(video);
-
-  // Choice panel (hidden until video ends)
+  // === Choice panel (hidden until video ENDS)
   const panel = document.createElement("div");
   panel.id = "vc-panel";
   panel.style.cssText = "display:none;margin-top:12px;";
   wrap.appendChild(panel);
 
-  // Timer
+  // Timer UI
   const timerDiv = document.createElement("div");
   timerDiv.id = "vc-timer";
   timerDiv.style.cssText = "font-weight:700;font-size:1.05rem;color:#00ffff;margin:6px 0;";
   panel.appendChild(timerDiv);
 
-  // Options
+  // Options UI
   const opts = document.createElement("div");
   opts.id = "vc-choices";
   opts.style.cssText = "display:flex;flex-direction:column;gap:8px;margin-top:8px;";
   panel.appendChild(opts);
 
-  // Feedback
+  // Feedback UI
   const fb = document.createElement("div");
   fb.id = "vc-feedback";
   fb.style.cssText = "margin-top:10px;font-weight:700;";
   panel.appendChild(fb);
 
-  // Build choices
-  (scene.choices || []).forEach(choice => {
-    const btn = document.createElement("button");
-    btn.textContent = choice.text || "";
-    btn.style.cssText = "text-align:left;padding:10px 12px;border-radius:10px;border:none;background:#00ffff;color:#000;font-weight:700;cursor:pointer";
-    btn.onmouseenter = () => (btn.style.background = "#00cccc");
-    btn.onmouseleave = () => (btn.style.background = "#00ffff");
-    regListener(btn, "click", () => {
-      clearTimer();
-      fb.textContent = "→";
-      fb.style.color = "#aaa";
-      loadScene(choice.next);
+  // Build choice buttons (or a single Continue if none provided)
+  function buildChoices() {
+    opts.innerHTML = "";
+    const choices = Array.isArray(scene.choices) && scene.choices.length
+      ? scene.choices
+      : (scene.next ? [{ text: "Continue", next: scene.next }] : []);
+    choices.forEach(choice => {
+      const btn = document.createElement("button");
+      btn.textContent = choice.text || "";
+      btn.style.cssText = "text-align:left;padding:10px 12px;border-radius:10px;border:none;background:#00ffff;color:#000;font-weight:700;cursor:pointer";
+      btn.onmouseenter = () => (btn.style.background = "#00cccc");
+      btn.onmouseleave = () => (btn.style.background = "#00ffff");
+      regListener(btn, "click", () => {
+        clearTimer();
+        fb.textContent = "→";
+        fb.style.color = "#aaa";
+        if (choice.next) loadScene(choice.next);
+      });
+      opts.appendChild(btn);
     });
-    opts.appendChild(btn);
-  });
+  }
 
-  // Timer logic (starts AFTER video ends)
+  // === Timer logic (starts AFTER video ends)
   const DEFAULT_SECONDS = 15;
   let timeLeft = 0;
   let iv = null;
@@ -4429,32 +4425,89 @@ function loadVideoChoiceScene(id) {
     const sec = (scene.timer === true)
       ? DEFAULT_SECONDS
       : (Number.isFinite(scene.timer) ? Number(scene.timer) : DEFAULT_SECONDS);
+    if (!sec || sec <= 0) { panel.style.display = "block"; return; }
     timeLeft = sec;
+    panel.style.display = "block";
     timerDiv.textContent = `⏳ Time left: ${timeLeft}s`;
     iv = setInterval(() => {
       timeLeft -= 1;
       timerDiv.textContent = `⏳ Time left: ${Math.max(0,timeLeft)}s`;
       if (timeLeft <= 0) {
         clearTimer();
-        fb.textContent = "⏲️ Time's up. Returning to hub...";
-        fb.style.color = "orange";
-        const to = scene.timeoutNext || scene.next || null;
-        setTimeout(() => { if (to) loadScene(to); }, 800);
+        fb.textContent = "⏲️ Time's up. Returning...";
+        fb.style.color  = "orange";
+        // Prefer explicit timeoutNext; else fall back to hubNext or next if you want
+        const to = scene.timeoutNext || scene.hubNext || scene.next || null;
+        setTimeout(() => { if (to) loadScene(to); }, 750);
       }
     }, 1000);
   }
 
-  // When the video ends → reveal panel and start timer
+  // === Video (mobile-safe, inline)
+  let video = null;
+  const raw = scene.videoSrc || scene.source || "";
+  const src = (typeof raw === "string") ? raw.replace(/^\//, "") : "";
+
   function onEnded() {
-    panel.style.display = "block";
+    buildChoices();
     startTimer();
   }
 
-  regListener(video, "ended", onEnded);
+  if (typeof window.mountInlineVideo === "function") {
+    // Use helper when present
+    const { video: v } = window.mountInlineVideo({
+      container: wrap,
+      src,
+      autoplay: false,            // user gesture required on mobile
+      controls: true,
+      loop: false,
+      onEnded
+    });
+    video = v;
+  } else {
+    // Fallback: direct element
+    video = document.createElement("video");
+    video.id = "vc-video";
+    video.controls = true;
+    video.preload = "metadata";
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    video.src = src;
+    video.style.cssText = "width:100%;max-height:360px;border-radius:12px;background:#000;display:block;margin:0 auto;";
+    wrap.appendChild(video);
+    regListener(video, "ended", onEnded);
+  }
+
+  // Error handling: show a fallback link if the video can't load
+  regListener(video, "error", () => {
+    const err = document.createElement("div");
+    err.style.cssText = "margin-top:8px;color:orange;font-weight:700;";
+    err.textContent = "⚠️ This device can’t play the video inline.";
+    const a = document.createElement("a");
+    a.href = src;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.style.cssText = "display:inline-block;margin-left:8px;";
+    a.textContent = "Open video in a new tab";
+    err.appendChild(a);
+    wrap.appendChild(err);
+    // Still allow the challenge to proceed (show choices + timer)
+    onEnded();
+  });
 
   // Cleanup when leaving this scene
-  regCleanup(() => { clearTimer(); const w = document.getElementById("vc-wrap"); if (w) w.remove(); });
+  regCleanup(() => {
+    clearTimer();
+    if (video) {
+      try { video.pause(); video.removeAttribute('src'); video.load(); } catch(_) {}
+      if (video.parentNode) video.parentNode.removeChild(video);
+    }
+    const w = document.getElementById("vc-wrap");
+    if (w) w.remove();
+  });
 }
+
 
 
 

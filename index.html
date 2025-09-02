@@ -68,6 +68,59 @@
   const $   = s => document.querySelector(s);
   const $id = s => document.getElementById(s);
 
+  function mountInlineVideo(opts) {
+  const {container, src, onEnded} = opts;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = "max-width:800px;margin:0 auto 16px;";
+  container.appendChild(wrap);
+
+  const video = document.createElement('video');
+  video.id = 'scene-video';
+  video.src = src;               // **relative path** (no leading /)
+  video.controls = true;
+  video.preload = 'metadata';
+  video.setAttribute('playsinline','');
+  video.setAttribute('webkit-playsinline','');
+  video.style.cssText = "width:100%;max-height:360px;border-radius:12px;background:#000;";
+  wrap.appendChild(video);
+
+  // Big “Tap to play” button (never autoplay)
+  const gate = document.createElement('button');
+  gate.textContent = "Tap to play video";
+  gate.style.cssText = "margin-top:10px;padding:10px 16px;font-weight:700;border:none;border-radius:10px;background:#00ffff;color:#000;cursor:pointer";
+  wrap.appendChild(gate);
+
+  gate.onclick = () => {
+    // user gesture → try play; catch any block
+    const p = video.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(err => {
+        console.warn('[Video] play() rejected', err);
+        gate.remove();
+        // Fallback: open in new tab
+        const a = document.createElement('a');
+        a.href = src; a.target = '_blank';
+        a.textContent = "Open video in a new tab";
+        a.style.cssText = "display:inline-block;margin-top:8px;color:#00ffff;text-decoration:underline;";
+        wrap.appendChild(a);
+      });
+    }
+  };
+
+  video.addEventListener('ended', () => { if (onEnded) onEnded(); });
+  video.addEventListener('error', () => {
+    console.warn('[Video] media error:', video.error);
+    gate.remove();
+    const a = document.createElement('a');
+    a.href = src; a.target = '_blank';
+    a.textContent = "Open video in a new tab";
+    a.style.cssText = "display:inline-block;margin-top:8px;color:#00ffff;text-decoration:underline;";
+    wrap.appendChild(a);
+  });
+
+  return {video, wrap};
+}
+
 function getHomeEl() {
   // Use the overlay itself (not its parent!)
   return document.getElementById('overlay-content')
