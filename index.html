@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <base href="./" />
+  <title>Keep A conversation Going! </title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .scramble-sentence {
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      margin-bottom: 8px;
+      border-radius: 6px;
+      cursor: move;
+      font-size: 1rem;
+    }
+    #scene-image img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto 20px;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Homepage Overlay -->
+  <div id="overlay-content">
+    <div>
+      <p id="subtitle">Get the job done!</p>
+      <div class="button-group">
+        <button onclick="startGame()">Play Now</button>
+        <button id="resume-btn" disabled>Resume game</button>
+
+        <button onclick="window.open('https://xavier-b.carrd.co/', '_blank')">About the Creator</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Container -->
+  <div id="game-container" style="display: none;">
+    <div id="scene-image"></div>
+    <div id="scene-text"></div>
+    <div id="challenge-info" style="margin-bottom: 20px; font-family: monospace; background: #111; color: #0ff; padding: 10px; border-radius: 5px;"></div>
+
+    <div id="sentence-scramble" style="display:none;"></div>
+    <div id="scramble-feedback" style="display:none;"></div>
+    <div id="scene6-ui"></div>
+    <div id="sceneFillInTheBlank"></div>
+    <div id="choices-container" class="decision-buttons"></div>
+    <div id="scene-container"></div>
+    <div id="email-challenge-container"></div>
+
+    <!-- ... -->
+  </div> <!-- close game-container -->
+
+  <!-- Sortable.js and Game Script -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="script.js?v=fix-g2a">
+    
+  </script>
+  <script>
+(function () {
+  const SAVE_KEY = 'game_progress_v1';
+  const RESUME_FALLBACK = 'scene1'; // change if your safe hub is different
+
+  const $   = s => document.querySelector(s);
+  const $id = s => document.getElementById(s);
+
+function getHomeEl() {
+  // Use the overlay itself (not its parent!)
+  return document.getElementById('overlay-content')
+      || document.getElementById('overlay')
+      || document.getElementById('home')
+      || document.getElementById('homepage');
+  }
+  function getGameEl() { return $id('game-container'); }
+
+  function readSave() { try { return JSON.parse(localStorage.getItem(SAVE_KEY)); } catch { return null; } }
+  function writeSave(o){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(o)); } catch {} }
+
+  function scenesMap() {
+    if (window.scenes) return window.scenes;
+    try { return (typeof scenes !== 'undefined') ? scenes : null; } catch { return null; }
+  }
+  function sceneExists(id) {
+    const sm = scenesMap();
+    if (!sm || !id) return false;
+    if (Array.isArray(sm)) return sm.some(x => x && x.id === id);
+    return !!sm[id];
+  }
+  function currentSceneMeta() {
+    const sm = scenesMap();
+    const id = window.currentSceneId;
+    return (sm && id) ? sm[id] : null;
+  }
+
+  function showHome() {
+    const home = getHomeEl(), game = getGameEl();
+    if (home) home.style.display = '';
+    if (game) game.style.display = 'none';
+  }
+  function hideHome() {
+    const home = getHomeEl(), game = getGameEl();
+    if (home) home.style.display = 'none';
+    if (game) game.style.display = 'block';
+  }
+
+  function renderedSomething() {
+    const game = getGameEl();
+    if (!game) return false;
+
+    // visible children?
+    if ([...game.children].some(n => n && n.offsetParent !== null)) return true;
+
+    const vid = $id('scene-video');
+    const img = $id('scene-image')?.querySelector('img');
+    const txt = $id('scene-text');
+
+    const featureIds = [
+      'iamc-ui','video-choice-wrap','video-multi-question-options','video-multi-audio-question-ui',
+      'sceneFillInTheBlank','sentence-scramble','dashboard-wrap','hangman','email-challenge-container',
+      'buckets','hotspots','particle-swapper','conj-race','survivor-quiz'
+    ];
+    const featurePresent = featureIds.some(id => {
+      const el = $id(id);
+      return el && el.offsetParent !== null;
+    });
+
+    // If the current scene is a bare text scene, require actual content
+    const meta = currentSceneMeta();
+    const hasText = !!(txt && txt.textContent && txt.textContent.trim().length);
+    const hasImg  = !!img;
+    const hasVid  = !!vid;
+
+    if (meta && meta.type === 'text') {
+      return hasText || hasImg || hasVid || featurePresent;
+    }
+    return featurePresent || hasVid || hasImg || hasText;
+  }
+
+  function pollForRender(maxMs = 2500, stepMs = 80) {
+    return new Promise(resolve => {
+      const t0 = performance.now();
+      (function tick(){
+        if (renderedSomething()) return resolve(true);
+        if (performance.now() - t0 >= maxMs) return resolve(false);
+        setTimeout(tick, stepMs);
+      })();
+    });
+  }
+
+  function updateResumeBtn() {
+    const btn = $id('resume-btn');
+    if (!btn) return;
+    const last = readSave()?.lastScene;
+    const ok = !!last && sceneExists(last);
+    btn.disabled = !ok;
+    btn.onclick = ok ? tryResume : null;
+  }
+
+  async function tryResume() {
+    const saved = readSave();
+    let target = saved?.lastScene;
+
+    if (!target || !sceneExists(target)) {
+      console.warn('[Resume] No valid saved scene; showing Home.');
+      showHome(); updateResumeBtn(); return;
+    }
+
+    // Make sure game area is visible for loaders that measure layout
+    hideHome();
+
+    // Ensure loadScene is attached
+    if (typeof window.loadScene !== 'function') {
+      let tries = 0;
+      await new Promise(res => (function wait(){
+        if (typeof window.loadScene === 'function') return res();
+        if (tries++ > 200) return res();
+        setTimeout(wait, 30);
+      })());
+    }
+    if (typeof window.loadScene !== 'function') {
+      console.warn('[Resume] loadScene unavailable; showing Home.');
+      showHome(); updateResumeBtn(); return;
+    }
+
+    try {
+      window.loadScene(target);
+      const ok = await pollForRender(2500, 80);
+      if (!ok) {
+        console.warn('[Resume] Target scene failed to render; falling back to Home.');
+        showHome();
+      }
+    } catch (e) {
+      console.error('[Resume] Error resuming:', e);
+      showHome();
+    } finally {
+      updateResumeBtn();
+    }
+  }
+
+  (function hookLoadScene() {
+    function install(orig) {
+      window.loadScene = function(id) {
+        const r = orig.apply(this, arguments);
+        // save progress (skip if you want to blacklist any ids)
+        const saved = readSave() || {};
+        saved.lastScene = id;
+        if (window.progress) {
+          saved.flags    = window.progress.flags    || saved.flags || {};
+          saved.unlocked = Array.from(window.progress.unlocked || saved.unlocked || []);
+        }
+        writeSave(saved);
+        try { updateResumeBtn(); } catch {}
+        return r;
+      };
+      console.log('[Resume] loadScene hooked.');
+    }
+    if (typeof window.loadScene === 'function') {
+      install(window.loadScene);
+    } else {
+      let tries = 0;
+      (function wait(){
+        if (typeof window.loadScene === 'function') return install(window.loadScene);
+        if (tries++ > 200) return;
+        setTimeout(wait, 30);
+      })();
+    }
+  })();
+
+  window.addEventListener('DOMContentLoaded', () => {
+    showHome();
+    updateResumeBtn();
+  });
+
+  // Dev helper
+  window.resetProgressToHome = function () {
+    localStorage.removeItem(SAVE_KEY);
+    showHome();
+    updateResumeBtn();
+  };
+})();
+  
+
+</script>
+
+</body>
+</html>
