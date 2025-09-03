@@ -4341,79 +4341,96 @@ function loadVideoChoiceScene(id) {
   const scene = scenes[id];
   if (!scene) { console.error(`Scene ${id} not found.`); return; }
 
-  // Safe shorthands
+  // Safe shorthands (don’t break if helpers aren’t present)
   const regNode     = window.registerNode     || function(){};
   const regListener = window.registerListener || function(t,e,h){ t.addEventListener(e,h); };
   const regCleanup  = window.registerCleanup  || function(){};
 
-  // Base containers
-  const game       = document.getElementById("game-container");
-  const sceneText  = document.getElementById("scene-text");
+  const game = document.getElementById("game-container");
+  const sceneText = document.getElementById("scene-text");
   const sceneImage = document.getElementById("scene-image");
 
   // Hide unrelated UI
-  [sceneImage].forEach(el => { if (el) { el.style.display = "none"; el.innerHTML = ""; } });
+  [sceneImage].forEach(el => { if (el) { el.style.display = "none"; el.innerHTML = ""; }});
   if (sceneText) { sceneText.style.display = "none"; sceneText.textContent = ""; }
   if (game) game.style.display = "block";
 
-  // Nuke prior VC UI
+  // Remove any prior instance
   const stale = document.getElementById("vc-wrap");
   if (stale) stale.remove();
 
-  // === Wrapper
+  // Wrapper
   const wrap = document.createElement("div");
   wrap.id = "vc-wrap";
   wrap.style.cssText = "max-width:840px;margin:0 auto;padding:8px;";
   regNode(wrap);
   game.appendChild(wrap);
 
-  // === Choice panel (hidden until video ENDS)
+  // Video
+  const video = document.createElement("video");
+  video.id = "vc-video";
+  video.controls = true;               // user-controlled (avoids autoplay policies)
+  video.preload = "metadata";
+  video.playsInline = true;            // iOS inline
+  video.setAttribute("webkit-playsinline","true");
+  video.muted = false;                 // don’t trigger autoplay attempts
+  video.src = scene.videoSrc || "";
+  video.style.cssText = "width:100%;max-height:45vh;border-radius:12px;background:#000;display:block;margin:0 auto;";
+  wrap.appendChild(video);
+
+  // “Tap to play” overlay to guarantee a user gesture
+  const overlay = document.createElement("button");
+  overlay.id = "vc-overlay";
+  overlay.textContent = "▶ Tap to play";
+  overlay.style.cssText = `
+    position:relative; display:block; width:100%;
+    margin:10px auto 0; padding:10px 14px;
+    border:none; border-radius:10px;
+    background:#00ffff; color:#000; font-weight:700; cursor:pointer;
+  `;
+  wrap.appendChild(overlay);
+
+  // Choice panel (hidden until video ends or user skips)
   const panel = document.createElement("div");
   panel.id = "vc-panel";
   panel.style.cssText = "display:none;margin-top:12px;";
   wrap.appendChild(panel);
 
-  // Timer UI
+  // Timer
   const timerDiv = document.createElement("div");
   timerDiv.id = "vc-timer";
   timerDiv.style.cssText = "font-weight:700;font-size:1.05rem;color:#00ffff;margin:6px 0;";
   panel.appendChild(timerDiv);
 
-  // Options UI
+  // Options
   const opts = document.createElement("div");
   opts.id = "vc-choices";
   opts.style.cssText = "display:flex;flex-direction:column;gap:8px;margin-top:8px;";
   panel.appendChild(opts);
 
-  // Feedback UI
+  // Feedback
   const fb = document.createElement("div");
   fb.id = "vc-feedback";
   fb.style.cssText = "margin-top:10px;font-weight:700;";
   panel.appendChild(fb);
 
-  // Build choice buttons (or a single Continue if none provided)
-  function buildChoices() {
-    opts.innerHTML = "";
-    const choices = Array.isArray(scene.choices) && scene.choices.length
-      ? scene.choices
-      : (scene.next ? [{ text: "Continue", next: scene.next }] : []);
-    choices.forEach(choice => {
-      const btn = document.createElement("button");
-      btn.textContent = choice.text || "";
-      btn.style.cssText = "text-align:left;padding:10px 12px;border-radius:10px;border:none;background:#00ffff;color:#000;font-weight:700;cursor:pointer";
-      btn.onmouseenter = () => (btn.style.background = "#00cccc");
-      btn.onmouseleave = () => (btn.style.background = "#00ffff");
-      regListener(btn, "click", () => {
-        clearTimer();
-        fb.textContent = "→";
-        fb.style.color = "#aaa";
-        if (choice.next) loadScene(choice.next);
-      });
-      opts.appendChild(btn);
+  // Build choices
+  (scene.choices || []).forEach(choice => {
+    const btn = document.createElement("button");
+    btn.textContent = choice.text || "";
+    btn.style.cssText = "text-align:left;padding:10px 12px;border-radius:10px;border:none;background:#00ffff;color:#000;font-weight:700;cursor:pointer";
+    btn.onmouseenter = () => (btn.style.background = "#00cccc");
+    btn.onmouseleave = () => (btn.style.background = "#00ffff");
+    regListener(btn, "click", () => {
+      clearTimer();
+      fb.textContent = "→";
+      fb.style.color = "#aaa";
+      loadScene(choice.next);
     });
-  }
+    opts.appendChild(btn);
+  });
 
-  // === Timer logic (starts AFTER video ends)
+  // Timer logic (starts AFTER video ends or when user skips)
   const DEFAULT_SECONDS = 15;
   let timeLeft = 0;
   let iv = null;
@@ -4425,9 +4442,7 @@ function loadVideoChoiceScene(id) {
     const sec = (scene.timer === true)
       ? DEFAULT_SECONDS
       : (Number.isFinite(scene.timer) ? Number(scene.timer) : DEFAULT_SECONDS);
-    if (!sec || sec <= 0) { panel.style.display = "block"; return; }
     timeLeft = sec;
-    panel.style.display = "block";
     timerDiv.textContent = `⏳ Time left: ${timeLeft}s`;
     iv = setInterval(() => {
       timeLeft -= 1;
@@ -4435,78 +4450,57 @@ function loadVideoChoiceScene(id) {
       if (timeLeft <= 0) {
         clearTimer();
         fb.textContent = "⏲️ Time's up. Returning...";
-        fb.style.color  = "orange";
-        // Prefer explicit timeoutNext; else fall back to hubNext or next if you want
-        const to = scene.timeoutNext || scene.hubNext || scene.next || null;
-        setTimeout(() => { if (to) loadScene(to); }, 750);
+        fb.style.color = "orange";
+        const to = scene.timeoutNext || scene.next || null;
+        setTimeout(() => { if (to) loadScene(to); }, 800);
       }
     }, 1000);
   }
 
-  // === Video (mobile-safe, inline)
-  let video = null;
-  const raw = scene.videoSrc || scene.source || "";
-  const src = (typeof raw === "string") ? raw.replace(/^\//, "") : "";
-
-  function onEnded() {
-    buildChoices();
+  function revealPanelAndStartTimer() {
+    panel.style.display = "block";
     startTimer();
   }
 
-  if (typeof window.mountInlineVideo === "function") {
-    // Use helper when present
-    const { video: v } = window.mountInlineVideo({
-      container: wrap,
-      src,
-      autoplay: false,            // user gesture required on mobile
-      controls: true,
-      loop: false,
-      onEnded
-    });
-    video = v;
-  } else {
-    // Fallback: direct element
-    video = document.createElement("video");
-    video.id = "vc-video";
-    video.controls = true;
-    video.preload = "metadata";
-    video.playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.setAttribute("webkit-playsinline", "");
-    video.src = src;
-    video.style.cssText = "width:100%;max-height:360px;border-radius:12px;background:#000;display:block;margin:0 auto;";
-    wrap.appendChild(video);
-    regListener(video, "ended", onEnded);
-  }
+  // Play flow — only on explicit tap
+  regListener(overlay, "click", async () => {
+    overlay.disabled = true;
+    try {
+      await video.play();            // user gesture → should be allowed
+      overlay.remove();              // playing OK
+    } catch (err) {
+      // If play still fails, show graceful fallback: show choices + timer immediately
+      console.warn("[video-choice] play() rejected:", err);
+      overlay.textContent = "▶ Open video in a new tab";
+      overlay.disabled = false;
+      overlay.onclick = () => window.open(video.src, "_blank");
 
-  // Error handling: show a fallback link if the video can't load
-  regListener(video, "error", () => {
-    const err = document.createElement("div");
-    err.style.cssText = "margin-top:8px;color:orange;font-weight:700;";
-    err.textContent = "⚠️ This device can’t play the video inline.";
-    const a = document.createElement("a");
-    a.href = src;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.style.cssText = "display:inline-block;margin-left:8px;";
-    a.textContent = "Open video in a new tab";
-    err.appendChild(a);
-    wrap.appendChild(err);
-    // Still allow the challenge to proceed (show choices + timer)
-    onEnded();
+      // Also add a Skip button
+      const skip = document.createElement("button");
+      skip.textContent = "Skip video";
+      skip.style.cssText = "margin-left:8px;padding:10px 14px;border:none;border-radius:10px;background:#222;color:#eee;font-weight:700;cursor:pointer";
+      overlay.parentNode.insertBefore(skip, overlay.nextSibling);
+      skip.onclick = () => {
+        overlay.remove();
+        skip.remove();
+        revealPanelAndStartTimer();
+      };
+    }
   });
 
-  // Cleanup when leaving this scene
+  // When the video ends → reveal panel and start timer
+  regListener(video, "ended", () => {
+    revealPanelAndStartTimer();
+  });
+
+  // Cleanup on leave
   regCleanup(() => {
     clearTimer();
-    if (video) {
-      try { video.pause(); video.removeAttribute('src'); video.load(); } catch(_) {}
-      if (video.parentNode) video.parentNode.removeChild(video);
-    }
     const w = document.getElementById("vc-wrap");
     if (w) w.remove();
   });
 }
+
 
 
 
