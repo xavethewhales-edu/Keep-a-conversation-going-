@@ -1,11 +1,52 @@
 <!DOCTYPE html>
+<!-- Built by xavethewhales-games · (c) 2025 -->
+
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <base href="./" />
+  <script>
+/*<script>
+/* Anti-mirror + frame-buster (runs before anything else) */
+(function () {
+  const CANON_HOST = "xavethewhales-edu.github.io";
+  // Auto-detect repo name from current path (first segment)
+  var firstSeg = (location.pathname || "/").replace(/^\/+/,"").split("/")[0] || "";
+  // Fallback if you're serving at root for a project page; set it explicitly if needed:
+  const FALLBACK_REPO = "keep-a-conversation-going"; // <-- change per repo if needed
+  const CANON_REPO = firstSeg || FALLBACK_REPO;
+
+  const ALLOW = new Set([
+    CANON_HOST,
+    "localhost",
+    "127.0.0.1",
+    // "your.custom.domain"  // add here if you set one
+  ]);
+
+  try {
+    // Block embedding
+    if (window.top !== window.self) {
+      window.top.location = window.location;
+      return;
+    }
+
+    // Redirect if mirrored somewhere else
+    const host = location.hostname;
+    if (!ALLOW.has(host)) {
+      const dest = "https://" + CANON_HOST + "/" + CANON_REPO + location.pathname.replace(/^\/+/,"/"+CANON_REPO+"/") + location.search + location.hash;
+      // Simpler & safer: rebuild from parts while preserving full path
+      const fixed = "https://" + CANON_HOST + "/" + CANON_REPO + location.pathname.replace(/^\/[^/]+/,"") + location.search + location.hash;
+      location.replace(fixed);
+    }
+  } catch (_) {}
+})();
+</script>
+
+
   <title>Keep A conversation Going! </title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2025-09-05-1" />
+
   <style>
     .scramble-sentence {
       padding: 10px;
@@ -56,10 +97,16 @@
   </div> <!-- close game-container -->
 
   <!-- Sortable.js and Game Script -->
+   
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
   <script src="script.js?v=fix-g2a">
     
   </script>
+  <script>
+  /* Asset path helper: strips a leading "/" to keep relative URLs valid on GitHub Pages */
+  function asRel(p){ return (typeof p === "string") ? p.replace(/^\//,"") : p; }
+</script>
+
   <script>
 (function () {
   const SAVE_KEY = 'game_progress_v1';
@@ -295,6 +342,18 @@ function getHomeEl() {
     updateResumeBtn();
   };
 })();
+
+/* Brand signature (console + DOM comment) */
+(function(){
+  const brand = "xavethewhales-games";
+  const year  = new Date().getFullYear();
+  try {
+    console.log("%cBuilt by "+brand+" · © "+year,
+      "background:#00ffff;color:#000;font-weight:700;padding:2px 6px;border-radius:6px");
+    document.body.appendChild(document.createComment(" Built by "+brand+" · © "+year+" "));
+  } catch(_) {}
+})();
+
   
 
 </script>

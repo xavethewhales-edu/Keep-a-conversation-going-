@@ -1,3 +1,40 @@
+// === Origin gate — blocks unauthorized mirrors ===
+const GH_USERS = ["xavethewhales-edu"];   // your GH Pages host: xavethewhales-edu.github.io
+const CUSTOM_DOMAINS = [];                // add custom domains here if you get one
+
+(function originGate(){
+  const h = location.host.toLowerCase();
+  const okLocal = /^localhost(:\d+)?$/.test(h) || /^127\.0\.0\.1(:\d+)?$/.test(h);
+  const okGh = GH_USERS.some(u => h === (u.toLowerCase() + ".github.io"));
+  const okCustom = CUSTOM_DOMAINS.includes(h);
+
+  if (!(okLocal || okGh || okCustom)) {
+    document.documentElement.innerHTML =
+      "<style>body{font-family:system-ui;background:#000;color:#0ff;padding:2rem}</style>" +
+      "<h1>Unauthorized mirror</h1><p>This build is locked to the author’s domains.</p>";
+    throw new Error("Unauthorized origin: " + h);
+  }
+})();
+
+// === Runtime signature (brand/evidence) ===
+const __XAVETHEWHALES_SIGNATURE__ = Object.freeze({
+  brand: "xavethewhales-games",
+  build: "2025-09-05",
+  site: "https://xavethewhales-edu.github.io"
+});
+(function showSigOnce(){
+  if (!window.__XTW_SIG_SHOWN__) {
+    window.__XTW_SIG_SHOWN__ = true;
+    try {
+      console.info(
+        "%c" + __XAVETHEWHALES_SIGNATURE__.brand + " — " + __XAVETHEWHALES_SIGNATURE__.build,
+        "color:#0ff;font-weight:700"
+      );
+    } catch {}
+  }
+})();
+
+
 const scenes = {
   /* ============================
      BOOTCAMP: VEGAS BREAKFAST
